@@ -9,7 +9,7 @@ steps:
       - cargo test
 
   - name: build-pr-image
-    image: woodpeckerci/plugin-docker-buildx
+    image: woodpeckerci/plugin-docker-buildx:5.0.0
     depends_on: [test]
     when:
       - event: [pull_request]
@@ -25,7 +25,7 @@ steps:
         - pr-${CI_COMMIT_SHA:0:7}
 
   - name: publish-image
-    image: woodpeckerci/plugin-docker-buildx
+    image: woodpeckerci/plugin-docker-buildx:5.0.0
     depends_on: [test]
     when:
       - event: [push]
@@ -41,5 +41,4 @@ steps:
       password:
         from_secret: ghcr_token
       tags:
-        - latest
-        - sha-${CI_COMMIT_SHA:0:7}
+        - ${CI_COMMIT_SHA}
