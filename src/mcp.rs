@@ -11,6 +11,77 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 
 pub const PROTOCOL_VERSION: &str = "2024-11-05";
+pub const READ_ONLY_ERROR_MESSAGE: &str = "tool/action disabled by read-only mode";
+
+const READ_ONLY_TOOL_NAMES: &[&str] = &["manage_resources", "get_metrics"];
+const MANAGE_RESOURCES_READ_ONLY_ACTIONS: &[&str] = &[
+    "list-services",
+    "list-groups",
+    "list-endpoints",
+    "get-config",
+    "get-health",
+    "list-expiring-certificates",
+    "get-alert-rules",
+    "get-suite-health",
+];
+const GET_METRICS_READ_ONLY_ACTIONS: &[&str] = &[
+    "system-stats",
+    "service-details",
+    "service-history",
+    "get-raw-results",
+    "group-summary",
+    "uptime",
+    "uptime-granular",
+    "response-time",
+    "alert-history",
+    "get-badge",
+    "get-latency-badge",
+    "get-latency-chart",
+    "failure-summary",
+    "performance-comparison",
+    "group-stats",
+    "alert-correlation",
+    "flapping-services",
+    "diagnostic-bundle",
+    "certificate-audit",
+];
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum AccessMode {
+    #[default]
+    ReadWrite,
+    ReadOnly,
+}
+
+impl AccessMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::ReadWrite => "disabled",
+            Self::ReadOnly => "enabled",
+        }
+    }
+
+    fn allows_tool(self, name: &str) -> bool {
+        self == Self::ReadWrite || READ_ONLY_TOOL_NAMES.contains(&name)
+    }
+
+    fn allows_call(self, name: &str, arguments: &Value) -> bool {
+        if self == Self::ReadWrite {
+            return true;
+        }
+
+        let allowed_actions = match name {
+            "manage_resources" => MANAGE_RESOURCES_READ_ONLY_ACTIONS,
+            "get_metrics" => GET_METRICS_READ_ONLY_ACTIONS,
+            _ => return false,
+        };
+
+        match arguments.get("action") {
+            Some(Value::String(action)) => allowed_actions.contains(&action.as_str()),
+            Some(_) | None => true,
+        }
+    }
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct JsonRpcRequest {
@@ -40,17 +111,33 @@ pub struct JsonRpcError {
 
 pub struct McpHandler {
     gatus_client: Arc<GatusClient>,
+    access_mode: AccessMode,
 }
 
 impl McpHandler {
     pub fn new(gatus_client: GatusClient) -> Self {
+        Self::new_with_access_mode(gatus_client, AccessMode::ReadWrite)
+    }
+
+    pub fn new_with_access_mode(gatus_client: GatusClient, access_mode: AccessMode) -> Self {
         Self {
             gatus_client: Arc::new(gatus_client),
+            access_mode,
         }
     }
 
     pub fn new_with_arc(gatus_client: Arc<GatusClient>) -> Self {
-        Self { gatus_client }
+        Self::new_with_arc_and_access_mode(gatus_client, AccessMode::ReadWrite)
+    }
+
+    pub fn new_with_arc_and_access_mode(
+        gatus_client: Arc<GatusClient>,
+        access_mode: AccessMode,
+    ) -> Self {
+        Self {
+            gatus_client,
+            access_mode,
+        }
     }
 
     #[tracing::instrument(skip(self, request))]
@@ -170,7 +257,7 @@ impl McpHandler {
     }
 
     fn get_tool_definitions(&self) -> Vec<Value> {
-        vec![
+        let tools = vec![
             json!({
                 "name": "manage_resources",
                 "description": "Discover and manage Gatus resources and instance state.",
@@ -179,7 +266,7 @@ impl McpHandler {
                     "properties": {
                         "action": {
                             "type": "string",
-                            "enum": ["list-services", "list-groups", "list-endpoints", "get-config", "get-health", "list-expiring-certificates", "get-alert-rules", "get-suite-health"],
+                            "enum": MANAGE_RESOURCES_READ_ONLY_ACTIONS,
                             "description": "Action to perform."
                         },
                         "id": {
@@ -202,7 +289,7 @@ impl McpHandler {
                     "properties": {
                         "action": {
                             "type": "string",
-                            "enum": ["system-stats", "service-details", "service-history", "get-raw-results", "group-summary", "uptime", "uptime-granular", "response-time", "alert-history", "get-badge", "get-latency-badge", "get-latency-chart", "failure-summary", "performance-comparison", "group-stats", "alert-correlation", "flapping-services", "diagnostic-bundle", "certificate-audit"],
+                            "enum": GET_METRICS_READ_ONLY_ACTIONS,
                             "description": "Action to perform."
                         },
                         "id": {
@@ -322,7 +409,20 @@ impl McpHandler {
                     "required": ["action"]
                 }
             }),
-        ]
+        ];
+
+        self.filter_tool_definitions(tools)
+    }
+
+    fn filter_tool_definitions(&self, tools: Vec<Value>) -> Vec<Value> {
+        tools
+            .into_iter()
+            .filter(|tool| {
+                tool["name"]
+                    .as_str()
+                    .is_some_and(|name| self.access_mode.allows_tool(name))
+            })
+            .collect()
     }
     async fn handle_list_prompts(&self, id: Value) -> Value {
         json!({
@@ -425,6 +525,10 @@ impl McpHandler {
         };
 
         let arguments = params.get("arguments").unwrap_or(&Value::Null);
+
+        if !self.access_mode.allows_call(name, arguments) {
+            return self.error_response(id, -32601, READ_ONLY_ERROR_MESSAGE);
+        }
 
         match name {
             "manage_resources" => self.handle_manage_resources_tool(id, arguments).await,
@@ -1611,5 +1715,23 @@ impl McpHandler {
             },
             "id": id
         })
+    }
+}
+
+#[cfg(test)]
+mod read_only_policy_tests {
+    use super::*;
+
+    #[test]
+    fn every_classified_action_is_allowed_and_unknown_actions_are_denied() {
+        for (tool, actions) in [
+            ("manage_resources", MANAGE_RESOURCES_READ_ONLY_ACTIONS),
+            ("get_metrics", GET_METRICS_READ_ONLY_ACTIONS),
+        ] {
+            for action in actions {
+                assert!(AccessMode::ReadOnly.allows_call(tool, &json!({"action": action})));
+            }
+            assert!(!AccessMode::ReadOnly.allows_call(tool, &json!({"action": "unclassified"})));
+        }
     }
 }
