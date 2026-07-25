@@ -61,8 +61,10 @@ Read-only mode disables these tools in full:
 - `manage_endpoints`
 
 Although `manage_endpoints` includes the read action `list-suites`, the product
-contract explicitly disables the entire mixed-purpose tool. Agents can inspect
-suites through the allowed `manage_resources` action `get-suite-health`.
+contract explicitly disables the entire mixed-purpose tool. The allowed
+`manage_resources` action `get-suite-health` can inspect a known suite ID but
+cannot discover suite IDs, so read-only mode intentionally does not provide
+suite discovery in this pass.
 
 The policy fails closed. Any future top-level tool is hidden and blocked in
 read-only mode until it is explicitly added to the allowlist. Any future action
@@ -129,9 +131,12 @@ gatus-mcp-rs
 └── call-tool
 ```
 
-Startup logs state `read-only mode: enabled` or `read-only mode: disabled`.
-They may include the configured Gatus URL, as today, but must not print API
-keys, usernames, passwords, or other credentials.
+Every invocation logs `read-only mode: enabled` or
+`read-only mode: disabled` to stderr after logging is initialized, including
+stdio, HTTP, `list-tools`, and `call-tool`. Startup output must not print the
+configured Gatus URL, API keys, usernames, passwords, or other credentials;
+removing the current raw URL log avoids leaking URL userinfo or secret query
+parameters.
 
 ## Machine-Readable Contract
 
@@ -214,7 +219,9 @@ CLI/configuration coverage verifies:
 - `--read-only` after a subcommand enables read-only;
 - `GATUS_MCP_READ_ONLY=true` enables read-only;
 - CLI and environment combination is deterministic;
-- the setting applies to stdio, HTTP, `list-tools`, and `call-tool`.
+- the setting applies to stdio, HTTP, `list-tools`, and `call-tool`;
+- a process invocation emits the resolved mode to stderr without echoing a
+  credential-bearing Gatus URL.
 
 Handler coverage verifies:
 
@@ -229,8 +236,8 @@ Handler coverage verifies:
 - an unclassified or mutating action on an allowed multi-action tool is denied
   before dispatch.
 
-Stdio coverage sends newline-delimited JSON-RPC through the server loop and
-performs the complete smoke sequence:
+Stdio integration coverage sends newline-delimited JSON-RPC through the server
+loop and performs the complete smoke sequence:
 
 1. `initialize`
 2. `notifications/initialized`
@@ -248,6 +255,28 @@ cargo clippy --all-targets --all-features -- -D warnings
 ```
 
 Existing upstream Clippy failures, if any, are reported rather than suppressed.
+
+After the Rust checks pass, build the repository Docker image with a local
+pinned tag and run the same newline-delimited smoke probe through the container
+entrypoint using the required trailing argument shape:
+
+```bash
+docker build -t gatus-mcp-rs:read-only-smoke .
+docker run -i --rm \
+  -e GATUS_API_URL=http://host.docker.internal:<mock-port> \
+  --add-host host.docker.internal:host-gateway \
+  gatus-mcp-rs:read-only-smoke \
+  stdio --read-only
+```
+
+The probe must execute `initialize`, `notifications/initialized`, `tools/list`,
+one allowed call against the mock Gatus server, and one disabled call. It must
+assert that stdout contains only newline-delimited protocol responses, the
+mutating tools are absent, the allowed call succeeds, the denied call returns
+the stable error, and stderr identifies read-only mode without secrets. Record
+the exact image smoke result in the implementation handoff. If Docker is
+unavailable in the execution environment, report that as an unverified release
+checkpoint rather than treating the in-process test as equivalent.
 
 ## Documentation and Docker
 
