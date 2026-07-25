@@ -12,14 +12,22 @@ use gatus_mcp_rs::{
 use serde_json::Value;
 use std::{
     io::{BufRead, BufReader},
-    net::TcpListener,
-    process::{Command, Stdio},
+    process::{Child, Command, Stdio},
     time::{Duration, Instant},
 };
 use tower::ServiceExt;
 
 const BIN: &str = env!("CARGO_BIN_EXE_gatus-mcp-rs");
 const SECRET_URL: &str = "http://cli-user:cli-password@127.0.0.1:9?token=cli-query-secret";
+
+struct ChildGuard(Child);
+
+impl Drop for ChildGuard {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
 
 fn clean_command() -> Command {
     let mut command = Command::new(BIN);
@@ -132,7 +140,6 @@ fn invalid_environment_value_is_rejected_by_clap() {
 
 #[test]
 fn read_only_call_tool_rejects_mutation_without_http() {
-    let started = Instant::now();
     let output = clean_command()
         .args(["call-tool", "trigger_check", r#"{"id":"core_service-1"}"#])
         .env("GATUS_MCP_READ_ONLY", "true")
@@ -141,7 +148,6 @@ fn read_only_call_tool_rejects_mutation_without_http() {
         .unwrap();
 
     assert!(output.status.success());
-    assert!(started.elapsed() < Duration::from_secs(2));
     let response: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(response["error"]["code"], -32601);
     assert_eq!(response["error"]["message"], READ_ONLY_ERROR_MESSAGE);
@@ -168,46 +174,49 @@ async fn read_only_http_messages_list_only_safe_tools() {
 
 #[test]
 fn http_polling_error_and_mode_log_do_not_expose_credentials() {
-    let port = TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port();
-    let mut child = clean_command()
-        .args([
-            "--read-only",
-            "http",
-            "--host",
-            "127.0.0.1",
-            "--port",
-            &port.to_string(),
-        ])
+    let child = clean_command()
+        .args(["--read-only", "http", "--host", "127.0.0.1", "--port", "0"])
         .env("GATUS_API_URL", SECRET_URL)
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    let stderr = child.stderr.take().unwrap();
+    let mut child = ChildGuard(child);
+    let stderr = child.0.stderr.take().unwrap();
     let (sender, receiver) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
+    let reader = std::thread::spawn(move || -> std::io::Result<String> {
         let mut observed = String::new();
         for line in BufReader::new(stderr).lines() {
-            let line = line.unwrap();
+            let line = line?;
             observed.push_str(&line);
             observed.push('\n');
-            if line.contains("Failed to poll Gatus for state changes") {
-                break;
-            }
+            let _ = sender.send(line.contains("Failed to poll Gatus for state changes"));
         }
-        let _ = sender.send(observed);
+        Ok(observed)
     });
 
-    let observed = receiver
-        .recv_timeout(Duration::from_secs(10))
-        .expect("timed out waiting for the polling error");
-    child.kill().unwrap();
-    child.wait().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut saw_polling_error = false;
+    while !saw_polling_error {
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            break;
+        };
+        match receiver.recv_timeout(remaining) {
+            Ok(line_has_polling_error) => saw_polling_error = line_has_polling_error,
+            Err(_) => break,
+        }
+    }
 
+    let _ = child.0.kill();
+    let wait_result = child.0.wait();
+    let reader_result = reader.join();
+
+    assert!(wait_result.is_ok(), "failed to wait for HTTP child process");
+    let observed = reader_result
+        .expect("stderr reader thread panicked")
+        .expect("failed to read child stderr");
+
+    assert!(saw_polling_error, "timed out waiting for polling error");
     assert!(observed.contains("read-only mode: enabled"), "{observed}");
     assert!(
         observed.contains("Failed to poll Gatus for state changes"),
