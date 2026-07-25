@@ -15,6 +15,7 @@ async fn test_run_app_list_tools() {
         api_key: None,
         log_level: "info".to_string(),
         log_format: "text".to_string(),
+        read_only: false,
         command: Some(Commands::ListTools),
     };
 
@@ -37,6 +38,7 @@ async fn test_run_app_call_tool() {
         api_key: None,
         log_level: "info".to_string(),
         log_format: "text".to_string(),
+        read_only: false,
         command: Some(Commands::CallTool {
             name: "manage_resources".to_string(),
             arguments: "{\"action\": \"list-endpoints\"}".to_string(),
@@ -57,6 +59,7 @@ async fn test_run_app_http() {
         api_key: None,
         log_level: "info".to_string(),
         log_format: "text".to_string(),
+        read_only: false,
         command: Some(Commands::Http {
             port: 8082,
             host: "127.0.0.1".to_string(),
@@ -79,6 +82,7 @@ async fn test_run_app_with_stdio_wrapper() {
         api_key: None,
         log_level: "info".to_string(),
         log_format: "text".to_string(),
+        read_only: false,
         command: Some(Commands::Stdio),
     };
 
@@ -100,6 +104,7 @@ async fn test_run_app_stdio_json_log() {
         api_key: None,
         log_level: "info".to_string(),
         log_format: "json".to_string(),
+        read_only: false,
         command: Some(Commands::Stdio),
     };
 
@@ -121,6 +126,7 @@ async fn test_run_app_stdio_minimal() {
         api_key: None,
         log_level: "info".to_string(),
         log_format: "json".to_string(),
+        read_only: false,
         command: Some(Commands::Stdio),
     };
 }

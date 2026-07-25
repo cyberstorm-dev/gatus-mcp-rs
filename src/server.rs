@@ -1,6 +1,6 @@
 use crate::cli::AppState;
 use crate::client::GatusClient;
-use crate::mcp::McpHandler;
+use crate::mcp::{AccessMode, McpHandler};
 use crate::settings::Settings;
 use axum::{
     extract::State,
@@ -18,13 +18,17 @@ use tokio::sync::broadcast;
 use tokio_stream::StreamExt as _;
 
 pub fn create_app(settings: Settings) -> Router {
+    create_app_with_access_mode(settings, AccessMode::ReadWrite)
+}
+
+pub fn create_app_with_access_mode(settings: Settings, access_mode: AccessMode) -> Router {
     let gatus_client = GatusClient::new(
         settings.gatus.api_url.clone(),
         settings.gatus.api_key.clone(),
         settings.gatus.username.clone(),
         settings.gatus.password.clone(),
     );
-    let mcp_handler = McpHandler::new(gatus_client.clone());
+    let mcp_handler = McpHandler::new_with_access_mode(gatus_client.clone(), access_mode);
     let (tx, _) = broadcast::channel(100);
 
     let state = AppState {
@@ -85,7 +89,7 @@ async fn background_polling_task(
                     last_statuses.insert(key, current_status);
                 }
             }
-            Err(e) => tracing::error!("Failed to poll Gatus: {}", e),
+            Err(_) => tracing::error!("Failed to poll Gatus for state changes"),
         }
     }
 }
@@ -135,7 +139,16 @@ where
 }
 
 pub async fn run_http_server(settings: Settings, port: u16, host: String) -> anyhow::Result<()> {
-    let app = create_app(settings);
+    run_http_server_with_access_mode(settings, port, host, AccessMode::ReadWrite).await
+}
+
+pub async fn run_http_server_with_access_mode(
+    settings: Settings,
+    port: u16,
+    host: String,
+    access_mode: AccessMode,
+) -> anyhow::Result<()> {
+    let app = create_app_with_access_mode(settings, access_mode);
     let addr = format!("{}:{}", host, port).parse::<SocketAddr>()?;
     tracing::info!("Listening on {}", addr);
     let listener = TcpListener::bind(addr).await?;

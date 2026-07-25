@@ -31,6 +31,10 @@ pub struct Cli {
     #[arg(long, env = "LOG_FORMAT", default_value = "text")]
     pub log_format: String,
 
+    /// Disable tools and actions that mutate Gatus
+    #[arg(long, env = "GATUS_MCP_READ_ONLY", global = true)]
+    pub read_only: bool,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }
