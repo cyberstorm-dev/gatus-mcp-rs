@@ -128,23 +128,20 @@ GATUS_MCP_READ_ONLY=true gatus-mcp-rs list-tools
 gatus-mcp-rs call-tool trigger_check '{"id":"core_service-1"}' --read-only
 ```
 
-In read-only mode, only these tools and their currently advertised actions are available:
+In read-only mode, only `manage_resources` and `get_metrics` are advertised. Their allowed actions are the canonical action lists in the [MCP Tool Reference](#mcp-tool-reference) below. The `get-suite-health` action requires a known suite ID; it does not discover suites.
 
-- `manage_resources`: `list-services`, `list-groups`, `list-endpoints`, `get-config`, `get-health`, `list-expiring-certificates`, `get-alert-rules`, and `get-suite-health`. The `get-suite-health` action reads health for a specified suite ID; it does not discover suites.
-- `get_metrics`: `system-stats`, `service-details`, `service-history`, `get-raw-results`, `group-summary`, `uptime`, `uptime-granular`, `response-time`, `alert-history`, `get-badge`, `get-latency-badge`, `get-latency-chart`, `failure-summary`, `performance-comparison`, `group-stats`, `alert-correlation`, `flapping-services`, `diagnostic-bundle`, and `certificate-audit`.
-
-The mutating tools `trigger_check`, `test_alert`, `reload_config`, `push_result`, and `manage_endpoints` are disabled. Calls to disabled tools or unclassified actions return JSON-RPC error `-32601` with the exact message `tool/action disabled by read-only mode`; they never silently no-op.
+The tools `trigger_check`, `test_alert`, `reload_config`, `push_result`, and `manage_endpoints` are disabled. `manage_endpoints` is mixed-purpose and includes the non-mutating `list-suites` action, but read-only mode disables the entire tool, so suite discovery is intentionally unavailable. Calls to disabled tools or unclassified actions return JSON-RPC error `-32601` with the exact message `tool/action disabled by read-only mode`; they never silently no-op.
 
 For container deployments, pin the image to a tested Git commit and pass the global option to the stdio command:
 
 ```bash
 docker run --rm -i \
   -e GATUS_API_URL=http://host.docker.internal:8080 \
-  ghcr.io/relax-dot-gg/gatus-mcp-rs:<git-sha> \
+  ghcr.io/relax-dot-gg/gatus-mcp-rs:sha-<short-git-sha> \
   stdio --read-only
 ```
 
-Replace `<git-sha>` with the exact commit you have tested. Do not use `latest` for a pinned deployment.
+Use the exact published `sha-...` tag for the commit you tested, or pin the image by digest. Never use `latest` for a pinned deployment.
 
 ## MCP Tool Reference
 
