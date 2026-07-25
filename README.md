@@ -60,6 +60,7 @@ You can configure the server using environment variables or a `config.toml` file
 - `GATUS_API_URL`: The base URL of your Gatus instance (e.g., `http://localhost:8080`).
 - `GATUS_API_KEY`: (Optional) Your Gatus API key for authentication.
 - `GATUS_SERVER_PORT`: Port for the HTTP server (default: `8080`).
+- `GATUS_MCP_READ_ONLY`: Set to `true` to enable read-only mode (default: `false`).
 - `LOG_LEVEL`: Logging level (`error`, `warn`, `info`, `debug`, `trace`).
 
 ### Example `config.toml`
@@ -109,9 +110,41 @@ Options:
   -k, --api-key <API_KEY>        Gatus API Key [env: GATUS_API_KEY]
   -l, --log-level <LOG_LEVEL>    Log level [default: info]
   -f, --log-format <LOG_FORMAT>  Log format (text, json) [default: text]
+      --read-only                Disable tools and actions that mutate Gatus [env: GATUS_MCP_READ_ONLY=]
   -h, --help                     Print help
   -V, --version                  Print version
 ```
+
+### Read-only Mode
+
+The server runs in read-write mode by default. Read-only mode is enabled when either the global `--read-only` flag is present or `GATUS_MCP_READ_ONLY=true`. The flag only enables read-only mode: if the environment variable already enforces it, there is no CLI option that downgrades the process to read-write mode.
+
+Because `--read-only` is global, it works before or after every subcommand and applies consistently to `stdio`, `http`, `list-tools`, and `call-tool`:
+
+```bash
+gatus-mcp-rs --read-only stdio
+gatus-mcp-rs stdio --read-only
+GATUS_MCP_READ_ONLY=true gatus-mcp-rs list-tools
+gatus-mcp-rs call-tool trigger_check '{"id":"core_service-1"}' --read-only
+```
+
+In read-only mode, only these tools and their currently advertised actions are available:
+
+- `manage_resources`: `list-services`, `list-groups`, `list-endpoints`, `get-config`, `get-health`, `list-expiring-certificates`, `get-alert-rules`, and `get-suite-health`. The `get-suite-health` action reads health for a specified suite ID; it does not discover suites.
+- `get_metrics`: `system-stats`, `service-details`, `service-history`, `get-raw-results`, `group-summary`, `uptime`, `uptime-granular`, `response-time`, `alert-history`, `get-badge`, `get-latency-badge`, `get-latency-chart`, `failure-summary`, `performance-comparison`, `group-stats`, `alert-correlation`, `flapping-services`, `diagnostic-bundle`, and `certificate-audit`.
+
+The mutating tools `trigger_check`, `test_alert`, `reload_config`, `push_result`, and `manage_endpoints` are disabled. Calls to disabled tools or unclassified actions return JSON-RPC error `-32601` with the exact message `tool/action disabled by read-only mode`; they never silently no-op.
+
+For container deployments, pin the image to a tested Git commit and pass the global option to the stdio command:
+
+```bash
+docker run --rm -i \
+  -e GATUS_API_URL=http://host.docker.internal:8080 \
+  ghcr.io/relax-dot-gg/gatus-mcp-rs:<git-sha> \
+  stdio --read-only
+```
+
+Replace `<git-sha>` with the exact commit you have tested. Do not use `latest` for a pinned deployment.
 
 ## MCP Tool Reference
 
