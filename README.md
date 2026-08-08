@@ -137,11 +137,11 @@ For container deployments, pin the image to a tested Git commit and pass the glo
 ```bash
 docker run --rm -i \
   -e GATUS_API_URL=http://host.docker.internal:8080 \
-  ghcr.io/relax-dot-gg/gatus-mcp-rs:<full-git-sha> \
+  ghcr.io/cyberstorm-dev/gatus-mcp-rs:<full-git-sha> \
   stdio --read-only
 ```
 
-Relax.gg Woodpecker publishes the exact 40-character commit SHA as the image tag. Use the full SHA tag for the commit you tested, or pin the image by digest. Never use `latest` for a pinned deployment.
+Cyberstorm Woodpecker publishes the exact 40-character commit SHA as the image tag. Use the full SHA tag for the commit you tested, or pin the image by digest. Never use `latest` for a pinned deployment.
 
 ## MCP Tool Reference
 
