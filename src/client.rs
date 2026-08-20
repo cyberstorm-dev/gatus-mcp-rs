@@ -60,7 +60,7 @@ impl EndpointStatus {
     pub fn display_status(&self) -> String {
         self.status
             .clone()
-            .unwrap_or_else(|| match self.results.first() {
+            .unwrap_or_else(|| match self.latest_result() {
                 Some(r) => {
                     if r.success {
                         "UP".to_string()
@@ -70,6 +70,11 @@ impl EndpointStatus {
                 }
                 None => "UNKNOWN".to_string(),
             })
+    }
+
+    /// Gatus returns historical results in ascending timestamp order.
+    pub fn latest_result(&self) -> Option<&HealthResult> {
+        self.results.last()
     }
 
     pub fn calculate_uptime(&self, timeframe: &str) -> f64 {
@@ -120,6 +125,7 @@ pub struct HealthResult {
     pub condition_results: Vec<ConditionResult>,
     pub body: Option<String>,
     pub headers: Option<std::collections::HashMap<String, String>>,
+    #[serde(rename = "certificateExpiration", alias = "certificate_expiration")]
     pub certificate_expiration: Option<u64>,
     #[serde(rename = "certificateIssuer")]
     pub certificate_issuer: Option<String>,
@@ -424,8 +430,8 @@ impl GatusClient {
         let mut down = 0;
         let degraded = 0; // Gatus suites don't explicitly have degraded in results, usually just success/failure
 
-        // Use the latest result
-        if let Some(latest) = suite_resp.results.first() {
+        // Gatus returns historical suite results oldest-first.
+        if let Some(latest) = suite_resp.results.last() {
             for res in &latest.endpoint_results {
                 if res.success {
                     up += 1;
@@ -612,7 +618,7 @@ impl GatusClient {
                 "DOWN" => down += 1,
                 "DEGRADED" => degraded += 1,
                 _ => {
-                    if let Some(result) = service.results.first() {
+                    if let Some(result) = service.latest_result() {
                         if result.success {
                             up += 1;
                         } else {
@@ -622,7 +628,7 @@ impl GatusClient {
                 }
             }
 
-            if let Some(result) = service.results.first() {
+            if let Some(result) = service.latest_result() {
                 if let Some(exp) = result.certificate_expiration {
                     if exp < threshold {
                         certificates_expiring_soon += 1;
@@ -663,7 +669,7 @@ impl GatusClient {
                 "DOWN" => down += 1,
                 "DEGRADED" => degraded += 1,
                 _ => {
-                    if let Some(result) = service.results.first() {
+                    if let Some(result) = service.latest_result() {
                         if result.success {
                             up += 1;
                         } else {
@@ -693,7 +699,7 @@ impl GatusClient {
         let threshold_ns = threshold_days * 24 * 60 * 60 * 1_000_000_000u64;
 
         for service in services {
-            if let Some(result) = service.results.first() {
+            if let Some(result) = service.latest_result() {
                 if let Some(exp) = result.certificate_expiration {
                     if exp < threshold_ns {
                         expiring.push(ExpiringCertificate {
@@ -752,8 +758,7 @@ impl GatusClient {
             .ok_or_else(|| anyhow::anyhow!("Service not found: {}", key))?;
 
         let result = service
-            .results
-            .first()
+            .latest_result()
             .ok_or_else(|| anyhow::anyhow!("No results found for service: {}", key))?;
 
         let mut failed_conditions = Vec::new();
@@ -1162,7 +1167,7 @@ impl GatusClient {
             .next()
             .ok_or_else(|| anyhow::anyhow!("Service not found: {}", key))?;
 
-        let failure_summary = if let Some(result) = service.results.first() {
+        let failure_summary = if let Some(result) = service.latest_result() {
             let mut failed_conditions = Vec::new();
             let mut passed_conditions = Vec::new();
 
@@ -1218,13 +1223,12 @@ impl GatusClient {
             .ok_or_else(|| anyhow::anyhow!("Service not found: {}", key))?;
 
         let result = service
-            .results
-            .first()
+            .latest_result()
             .ok_or_else(|| anyhow::anyhow!("No results found for service: {}", key))?;
 
         Ok(CertificateAudit {
-            name: service.name,
-            group: service.group,
+            name: service.name.clone(),
+            group: service.group.clone(),
             issuer: result.certificate_issuer.clone(),
             algorithm: result.certificate_algorithm.clone(),
             sans: result.certificate_sans.clone().unwrap_or_default(),

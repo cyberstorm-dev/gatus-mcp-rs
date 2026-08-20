@@ -22,6 +22,16 @@ async fn test_gatus_client_get_certificate_audit() {
                     "certificateIssuer": "Let's Encrypt",
                     "certificateAlgorithm": "RSA-2048",
                     "certificateSans": ["example.com", "www.example.com"]
+                },
+                {
+                    "timestamp": "2026-08-20T14:30:45Z",
+                    "success": true,
+                    "duration": 100000000,
+                    "conditionResults": [],
+                    "certificateExpiration": 2000000000,
+                    "certificateIssuer": "New Issuer",
+                    "certificateAlgorithm": "ECDSA",
+                    "certificateSans": ["new.example.com"]
                 }
             ]
         }
@@ -38,10 +48,8 @@ async fn test_gatus_client_get_certificate_audit() {
         .await
         .unwrap();
     assert_eq!(audit.name, "service-1");
-    assert_eq!(audit.issuer, Some("Let's Encrypt".to_string()));
-    assert_eq!(audit.algorithm, Some("RSA-2048".to_string()));
-    assert_eq!(
-        audit.sans,
-        vec!["example.com".to_string(), "www.example.com".to_string()]
-    );
+    assert_eq!(audit.issuer, Some("New Issuer".to_string()));
+    assert_eq!(audit.algorithm, Some("ECDSA".to_string()));
+    assert_eq!(audit.sans, vec!["new.example.com".to_string()]);
+    assert_eq!(audit.expiration, Some(2000000000));
 }

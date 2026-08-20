@@ -67,6 +67,72 @@ fn test_display_status_from_results_down() {
 }
 
 #[test]
+fn test_display_status_uses_newest_gatus_result() {
+    let result = |timestamp: &str, success| HealthResult {
+        timestamp: timestamp.to_string(),
+        success,
+        hostname: None,
+        ip: None,
+        duration: 0,
+        errors: vec![],
+        status: None,
+        condition_results: vec![],
+        body: None,
+        headers: None,
+        certificate_expiration: None,
+        certificate_issuer: None,
+        certificate_algorithm: None,
+        certificate_sans: None,
+    };
+    let ep = EndpointStatus {
+        name: "svc".to_string(),
+        group: "grp".to_string(),
+        status: None,
+        // Gatus returns status history oldest-first.
+        results: vec![
+            result("2026-08-20T13:46:19Z", false),
+            result("2026-08-20T14:30:45Z", true),
+        ],
+        events: vec![],
+    };
+
+    assert_eq!(ep.display_status(), "UP");
+    assert!(ep.latest_result().is_some_and(|item| item.success));
+}
+
+#[test]
+fn test_display_status_uses_api_order_when_timestamp_is_malformed() {
+    let result = |timestamp: &str, success| HealthResult {
+        timestamp: timestamp.to_string(),
+        success,
+        hostname: None,
+        ip: None,
+        duration: 0,
+        errors: vec![],
+        status: None,
+        condition_results: vec![],
+        body: None,
+        headers: None,
+        certificate_expiration: None,
+        certificate_issuer: None,
+        certificate_algorithm: None,
+        certificate_sans: None,
+    };
+    let ep = EndpointStatus {
+        name: "svc".to_string(),
+        group: "grp".to_string(),
+        status: None,
+        results: vec![
+            result("2026-08-20T14:30:45Z", false),
+            result("not-a-timestamp", true),
+        ],
+        events: vec![],
+    };
+
+    assert_eq!(ep.display_status(), "UP");
+}
+
+#[test]
 fn test_calculate_uptime_different_timeframes() {
     let now = chrono::Utc::now();
     let ts_1h = (now - chrono::Duration::minutes(30)).to_rfc3339();

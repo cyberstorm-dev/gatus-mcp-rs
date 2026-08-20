@@ -153,7 +153,7 @@ pub fn format_endpoint_status(endpoint: &EndpointStatus, badge_url: Option<&str>
     output.push_str(&format!("- **Group:** {}\n", endpoint.group));
     output.push_str(&format!("- **Status:** {}\n", endpoint.display_status()));
 
-    if let Some(result) = endpoint.results.first() {
+    if let Some(result) = endpoint.latest_result() {
         output.push_str("\n#### Latest Result\n");
         output.push_str(&format!("- **Timestamp:** {}\n", result.timestamp));
         output.push_str(&format!("- **Success:** {}\n", result.success));
@@ -205,7 +205,7 @@ pub fn format_endpoints_summary(endpoints: &[EndpointStatus]) -> String {
     output.push_str("| :--- | :--- | :--- | :--- |\n");
 
     for endpoint in endpoints {
-        let latest = match endpoint.results.first() {
+        let latest = match endpoint.latest_result() {
             Some(r) => {
                 if r.success {
                     "✅"
@@ -247,7 +247,7 @@ pub fn format_config_summary(endpoints: &[EndpointStatus]) -> String {
             "#### {} (Group: {})\n",
             endpoint.name, endpoint.group
         ));
-        if let Some(result) = endpoint.results.first() {
+        if let Some(result) = endpoint.latest_result() {
             if !result.condition_results.is_empty() {
                 output.push_str("- **Conditions:**\n");
                 for condition in &result.condition_results {
